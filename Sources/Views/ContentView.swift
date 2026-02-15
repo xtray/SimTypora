@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import WebKit
 
 struct ContentView: View {
     @EnvironmentObject var document: MarkdownDocument
@@ -80,11 +81,14 @@ struct MarkdownEditorView: NSViewRepresentable {
     final class Coordinator: NSObject, NSTextViewDelegate {
         private let parent: MarkdownEditorView
         private weak var textView: NSTextView?
+        private weak var tableWebView: WKWebView?
 
         private var isUpdating = false
         private var sourceText = ""
         private var focusedLineIndex: Int?
         private var activeCodeBlockRange: ClosedRange<Int>?
+        private var activeTableRange: ClosedRange<Int>?
+        private var overlayTableRange: ClosedRange<Int>?
         private var lastRenderedLines: [String] = []
 
         init(_ parent: MarkdownEditorView) {
@@ -95,7 +99,9 @@ struct MarkdownEditorView: NSViewRepresentable {
             self.textView = textView
             sourceText = initialText
             focusedLineIndex = 0
+            installTableWebViewIfNeeded()
             updateActiveCodeBlockRange()
+            updateActiveTableRange()
             renderProjection(keepSelection: false)
         }
 
@@ -103,6 +109,7 @@ struct MarkdownEditorView: NSViewRepresentable {
             guard !isUpdating, text != sourceText else { return }
             sourceText = text
             updateActiveCodeBlockRange()
+            updateActiveTableRange()
             renderProjection(keepSelection: true)
         }
 
@@ -115,6 +122,36 @@ struct MarkdownEditorView: NSViewRepresentable {
             guard currentDisplayLines == lastRenderedLines else { return }
 
             updateFocusForCurrentSelection(shouldRender: true)
+        }
+
+        func textView(
+            _ textView: NSTextView,
+            shouldChangeTextIn affectedCharRange: NSRange,
+            replacementString: String?
+        ) -> Bool {
+            guard !isUpdating, replacementString == "|" else { return true }
+            guard affectedCharRange.length == 0 else { return true }
+
+            let nsText = textView.string as NSString
+            let lineRange = nsText.lineRange(for: NSRange(location: affectedCharRange.location, length: 0))
+            let lineTextWithTerminator = nsText.substring(with: lineRange)
+            let lineText = lineTextWithTerminator.trimmingCharacters(in: .newlines)
+            let lineIndent = lineText.prefix { $0 == " " || $0 == "\t" }
+            guard lineText.trimmingCharacters(in: .whitespaces).isEmpty else { return true }
+
+            let currentLine = lineIndex(of: affectedCharRange.location, in: textView.string)
+            guard !isInsideCodeBlock(lineIndex: currentLine) else { return true }
+
+            let indent = String(lineIndent)
+            let skeleton = [
+                "\(indent)| Column 1 | Column 2 |",
+                "\(indent)| --- | --- |",
+                "\(indent)|  |  |"
+            ].joined(separator: "\n")
+
+            textView.insertText(skeleton, replacementRange: affectedCharRange)
+            textView.setSelectedRange(NSRange(location: affectedCharRange.location + indent.count + 2, length: 0))
+            return false
         }
 
         func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
@@ -137,6 +174,16 @@ struct MarkdownEditorView: NSViewRepresentable {
                 : (lineTextWithTerminator as NSString).length
             let lineEndLocation = lineRange.location + lineTextLength
             guard selection.location == lineEndLocation else { return false }
+
+            if let continuationPrefix = listContinuationPrefix(for: lineText) {
+                textView.insertText("\n" + continuationPrefix, replacementRange: selection)
+                textView.setSelectedRange(
+                    NSRange(location: selection.location + 1 + continuationPrefix.count, length: 0)
+                )
+                updateFocusForCurrentSelection(shouldRender: true)
+                return true
+            }
+
             let currentLineIndex = lineIndex(of: selection.location, in: textView.string)
             guard isOpeningFenceLine(currentLineIndex) else { return false }
 
@@ -144,6 +191,48 @@ struct MarkdownEditorView: NSViewRepresentable {
             textView.setSelectedRange(NSRange(location: selection.location + 1, length: 0))
             updateFocusForCurrentSelection(shouldRender: true)
             return true
+        }
+
+        private func listContinuationPrefix(for lineText: String) -> String? {
+            let nsLine = lineText as NSString
+            let fullRange = NSRange(location: 0, length: nsLine.length)
+
+            let taskPattern = #"^([ \t]*)([-+*]) \[(?: |x|X)\](?:\s+(.+))?$"#
+            if let regex = try? NSRegularExpression(pattern: taskPattern),
+               let match = regex.firstMatch(in: lineText, range: fullRange),
+               match.numberOfRanges >= 3 {
+                let indent = nsLine.substring(with: match.range(at: 1))
+                let marker = nsLine.substring(with: match.range(at: 2))
+                let content = match.range(at: 3).location == NSNotFound
+                    ? ""
+                    : nsLine.substring(with: match.range(at: 3)).trimmingCharacters(in: .whitespaces)
+                guard !content.isEmpty else { return nil }
+                return "\(indent)\(marker) [ ] "
+            }
+
+            let orderedPattern = #"^([ \t]*)(\d+)\.\s+(.+)$"#
+            if let regex = try? NSRegularExpression(pattern: orderedPattern),
+               let match = regex.firstMatch(in: lineText, range: fullRange),
+               match.numberOfRanges == 4 {
+                let indent = nsLine.substring(with: match.range(at: 1))
+                let numberText = nsLine.substring(with: match.range(at: 2))
+                let content = nsLine.substring(with: match.range(at: 3)).trimmingCharacters(in: .whitespaces)
+                guard !content.isEmpty, let number = Int(numberText) else { return nil }
+                return "\(indent)\(number + 1). "
+            }
+
+            let unorderedPattern = #"^([ \t]*)([-+*])\s+(.+)$"#
+            if let regex = try? NSRegularExpression(pattern: unorderedPattern),
+               let match = regex.firstMatch(in: lineText, range: fullRange),
+               match.numberOfRanges == 4 {
+                let indent = nsLine.substring(with: match.range(at: 1))
+                let marker = nsLine.substring(with: match.range(at: 2))
+                let content = nsLine.substring(with: match.range(at: 3)).trimmingCharacters(in: .whitespaces)
+                guard !content.isEmpty else { return nil }
+                return "\(indent)\(marker) "
+            }
+
+            return nil
         }
 
         func textDidChange(_ notification: Notification) {
@@ -187,7 +276,10 @@ struct MarkdownEditorView: NSViewRepresentable {
             defer { isUpdating = false }
 
             let previousSelection = textView.selectedRange()
+            let previousText = textView.string
+            let previousCaret = lineAndColumn(of: previousSelection.location, in: previousText)
             let sourceLines = sourceText.components(separatedBy: "\n")
+            let tablePresentation = buildTablePresentation(lines: sourceLines)
             var inCodeBlock = false
             let attributed = NSMutableAttributedString()
             var renderedLines: [String] = []
@@ -196,6 +288,8 @@ struct MarkdownEditorView: NSViewRepresentable {
                 let lineAttr: NSAttributedString
                 if shouldShowRaw(lineIndex: index) {
                     lineAttr = MarkdownRenderer.shared.renderRawLine(line)
+                } else if activeTableRange == nil, let tableLine = tablePresentation[index] {
+                    lineAttr = MarkdownRenderer.shared.renderHiddenTablePlaceholder(tableLine.text)
                 } else {
                     lineAttr = MarkdownRenderer.shared.renderLine(line, inCodeBlock: &inCodeBlock)
                 }
@@ -212,12 +306,22 @@ struct MarkdownEditorView: NSViewRepresentable {
             lastRenderedLines = renderedLines
 
             if keepSelection {
-                let safeLocation = min(previousSelection.location, (textView.string as NSString).length)
-                let safeLength = min(previousSelection.length, (textView.string as NSString).length - safeLocation)
-                textView.setSelectedRange(NSRange(location: safeLocation, length: safeLength))
+                let mappedLocation = characterOffset(
+                    forLine: previousCaret.line,
+                    column: previousCaret.column,
+                    in: textView.string
+                )
+                textView.setSelectedRange(NSRange(location: mappedLocation, length: 0))
             } else {
                 textView.setSelectedRange(NSRange(location: 0, length: 0))
             }
+
+            updateTableWebOverlay()
+        }
+
+        private func tableWebOverlayRange(in lines: [String]) -> ClosedRange<Int>? {
+            guard activeTableRange == nil else { return nil }
+            return firstTableBlock(in: lines)?.range
         }
 
         private func shouldShowRaw(lineIndex: Int) -> Bool {
@@ -225,6 +329,9 @@ struct MarkdownEditorView: NSViewRepresentable {
                 return true
             }
             if let range = activeCodeBlockRange, range.contains(lineIndex) {
+                return true
+            }
+            if let range = activeTableRange, range.contains(lineIndex) {
                 return true
             }
             return false
@@ -235,11 +342,13 @@ struct MarkdownEditorView: NSViewRepresentable {
             let selectedLine = lineIndex(of: textView.selectedRange().location, in: textView.string)
             let lineChanged = selectedLine != focusedLineIndex
             let previousCodeBlockRange = activeCodeBlockRange
+            let previousTableRange = activeTableRange
             focusedLineIndex = selectedLine
             updateActiveCodeBlockRange()
+            updateActiveTableRange()
 
             guard shouldRender else { return }
-            if lineChanged || previousCodeBlockRange != activeCodeBlockRange {
+            if lineChanged || previousCodeBlockRange != activeCodeBlockRange || previousTableRange != activeTableRange {
                 renderProjection(keepSelection: true)
             }
         }
@@ -252,6 +361,207 @@ struct MarkdownEditorView: NSViewRepresentable {
 
             let sourceLines = sourceText.components(separatedBy: "\n")
             activeCodeBlockRange = codeBlockRange(containing: focusedLineIndex, in: sourceLines)
+        }
+
+        private func updateActiveTableRange() {
+            guard let focusedLineIndex else {
+                activeTableRange = nil
+                return
+            }
+
+            let sourceLines = sourceText.components(separatedBy: "\n")
+            activeTableRange = tableRange(containing: focusedLineIndex, in: sourceLines)
+        }
+
+        private struct TableBlock {
+            let range: ClosedRange<Int>
+            let headers: [String]
+            let alignments: [TableAlignment]
+            let rows: [[String]]
+        }
+
+        private func installTableWebViewIfNeeded() {
+            guard let textView, tableWebView == nil else { return }
+            let webView = PassthroughWKWebView(frame: .zero, configuration: WKWebViewConfiguration())
+            webView.setValue(false, forKey: "drawsBackground")
+            webView.isHidden = true
+            webView.navigationDelegate = nil
+            webView.autoresizingMask = []
+            textView.addSubview(webView)
+            tableWebView = webView
+        }
+
+        private func updateTableWebOverlay() {
+            guard let textView, let webView = tableWebView else { return }
+
+            // Typora-like behavior: focus inside table -> raw markdown editing.
+            if activeTableRange != nil {
+                webView.isHidden = true
+                overlayTableRange = nil
+                return
+            }
+
+            let sourceLines = sourceText.components(separatedBy: "\n")
+            guard let block = firstTableBlock(in: sourceLines),
+                  let frame = tableFrame(for: block.range, in: textView) else {
+                webView.isHidden = true
+                overlayTableRange = nil
+                return
+            }
+
+            if overlayTableRange != block.range {
+                webView.loadHTMLString(tableHTML(for: block), baseURL: nil)
+                overlayTableRange = block.range
+            }
+
+            webView.frame = frame
+            webView.isHidden = false
+        }
+
+        private func firstTableBlock(in lines: [String]) -> TableBlock? {
+            var inCodeBlock = false
+            var index = 0
+
+            while index < lines.count {
+                let line = lines[index]
+                if line.hasPrefix("```") {
+                    inCodeBlock.toggle()
+                    index += 1
+                    continue
+                }
+                if inCodeBlock {
+                    index += 1
+                    continue
+                }
+
+                guard index + 1 < lines.count,
+                      let headers = parseTableCells(lines[index]),
+                      let alignments = parseTableSeparator(lines[index + 1]) else {
+                    index += 1
+                    continue
+                }
+
+                var rows: [[String]] = []
+                var end = index + 1
+                var scan = index + 2
+                while scan < lines.count {
+                    let rowLine = lines[scan]
+                    if rowLine.hasPrefix("```") { break }
+                    guard let cells = parseTableCells(rowLine) else { break }
+                    rows.append(cells)
+                    end = scan
+                    scan += 1
+                }
+
+                return TableBlock(range: index...end, headers: headers, alignments: alignments, rows: rows)
+            }
+
+            return nil
+        }
+
+        private func tableFrame(for range: ClosedRange<Int>, in textView: NSTextView) -> NSRect? {
+            guard let layoutManager = textView.layoutManager, let textContainer = textView.textContainer else {
+                return nil
+            }
+            let displayText = textView.string
+            let start = characterOffset(forDisplayedLine: range.lowerBound, text: displayText)
+            let end = characterOffset(forDisplayedLine: range.upperBound + 1, text: displayText)
+            let charRange = NSRange(location: start, length: max(0, end - start))
+            let glyphRange = layoutManager.glyphRange(forCharacterRange: charRange, actualCharacterRange: nil)
+            var rect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
+            rect.origin.x += textView.textContainerInset.width
+            rect.origin.y += textView.textContainerInset.height
+            rect.size.width = max(200, rect.size.width)
+            rect.size.height += 6
+            return rect
+        }
+
+        private func characterOffset(forDisplayedLine targetLine: Int, text: String) -> Int {
+            let ns = text as NSString
+            guard targetLine > 0 else { return 0 }
+            let length = ns.length
+            var currentLine = 0
+            var index = 0
+            while index < length {
+                if currentLine == targetLine {
+                    return index
+                }
+                if ns.character(at: index) == 10 {
+                    currentLine += 1
+                }
+                index += 1
+            }
+            if currentLine == targetLine {
+                return length
+            }
+            return length
+        }
+
+        private func characterOffset(forLine targetLine: Int, lines: [String]) -> Int {
+            guard targetLine > 0 else { return 0 }
+            var offset = 0
+            for idx in 0..<min(targetLine, lines.count) {
+                offset += lines[idx].count
+                if idx < lines.count - 1 {
+                    offset += 1
+                }
+            }
+            return offset
+        }
+
+        private func tableHTML(for block: TableBlock) -> String {
+            let rowMax = block.rows.map { $0.count }.max() ?? 0
+            let colCount = max(block.headers.count, max(block.alignments.count, rowMax))
+            let headers = padCells(block.headers, to: colCount)
+            let alignments = padAlignments(block.alignments, to: colCount)
+            let rows = block.rows.map { padCells($0, to: colCount) }
+
+            let alignmentCSS = alignments.map { alignment -> String in
+                switch alignment {
+                case .left: return "left"
+                case .center: return "center"
+                case .right: return "right"
+                }
+            }
+
+            let headerHTML = headers.enumerated().map { index, cell in
+                "<th style=\"text-align:\(alignmentCSS[index])\">\(escapeHTML(cell))</th>"
+            }.joined()
+
+            let bodyHTML = rows.map { row in
+                let cells = row.enumerated().map { index, cell in
+                    "<td style=\"text-align:\(alignmentCSS[index])\">\(escapeHTML(cell))</td>"
+                }.joined()
+                return "<tr>\(cells)</tr>"
+            }.joined()
+
+            return """
+            <html>
+              <head>
+                <meta charset="utf-8">
+                <style>
+                  body { margin: 0; padding: 0; background: transparent; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+                  table { width: max-content; border-collapse: collapse; table-layout: auto; font-size: 13px; line-height: 1.25; color: #1f2328; }
+                  th, td { border: 1px solid #d0d7de; padding: 2px 8px; vertical-align: middle; white-space: nowrap; }
+                  th { background: #f6f8fa; font-weight: 600; }
+                  tr:nth-child(even) td { background: #fcfcfd; }
+                </style>
+              </head>
+              <body>
+                <table>
+                  <thead><tr>\(headerHTML)</tr></thead>
+                  <tbody>\(bodyHTML)</tbody>
+                </table>
+              </body>
+            </html>
+            """
+        }
+
+        private func escapeHTML(_ text: String) -> String {
+            text
+                .replacingOccurrences(of: "&", with: "&amp;")
+                .replacingOccurrences(of: "<", with: "&lt;")
+                .replacingOccurrences(of: ">", with: "&gt;")
         }
 
         private func codeBlockRange(containing line: Int, in lines: [String]) -> ClosedRange<Int>? {
@@ -298,6 +608,257 @@ struct MarkdownEditorView: NSViewRepresentable {
             return false
         }
 
+        private func isInsideCodeBlock(lineIndex: Int) -> Bool {
+            let sourceLines = sourceText.components(separatedBy: "\n")
+            return codeBlockRange(containing: lineIndex, in: sourceLines) != nil
+        }
+
+        private func tableRange(containing line: Int, in lines: [String]) -> ClosedRange<Int>? {
+            guard !lines.isEmpty, line >= 0, line < lines.count else { return nil }
+
+            var inCodeBlock = false
+            var index = 0
+
+            while index < lines.count {
+                let current = lines[index]
+                if current.hasPrefix("```") {
+                    inCodeBlock.toggle()
+                    index += 1
+                    continue
+                }
+
+                if inCodeBlock {
+                    index += 1
+                    continue
+                }
+
+                guard index + 1 < lines.count,
+                      parseTableCells(lines[index]) != nil,
+                      parseTableSeparator(lines[index + 1]) != nil else {
+                    index += 1
+                    continue
+                }
+
+                var end = index + 1
+                var scan = index + 2
+                while scan < lines.count {
+                    let rowLine = lines[scan]
+                    if rowLine.hasPrefix("```") || parseTableCells(rowLine) == nil {
+                        break
+                    }
+                    end = scan
+                    scan += 1
+                }
+
+                let range = index...end
+                if range.contains(line) {
+                    return range
+                }
+                index = scan
+            }
+
+            return nil
+        }
+
+        private struct TableLinePresentation {
+            let text: String
+            let isHeader: Bool
+            let isSeparator: Bool
+        }
+
+        private enum TableAlignment {
+            case left
+            case center
+            case right
+        }
+
+        private enum TableRowKind {
+            case header
+            case body
+            case separator
+        }
+
+        private func buildTablePresentation(lines: [String]) -> [Int: TableLinePresentation] {
+            var result: [Int: TableLinePresentation] = [:]
+            var inCodeBlock = false
+            var index = 0
+
+            while index < lines.count {
+                let line = lines[index]
+                if line.hasPrefix("```") {
+                    inCodeBlock.toggle()
+                    index += 1
+                    continue
+                }
+
+                if inCodeBlock {
+                    index += 1
+                    continue
+                }
+
+                guard index + 1 < lines.count,
+                      let headerCells = parseTableCells(lines[index]),
+                      let alignments = parseTableSeparator(lines[index + 1]) else {
+                    index += 1
+                    continue
+                }
+
+                let columnCount = max(headerCells.count, alignments.count)
+                var rows: [(lineIndex: Int, kind: TableRowKind, cells: [String])] = []
+                rows.append((index, .header, headerCells))
+                rows.append((index + 1, .separator, []))
+
+                var scan = index + 2
+                while scan < lines.count {
+                    let rowLine = lines[scan]
+                    if rowLine.hasPrefix("```") { break }
+                    guard let rowCells = parseTableCells(rowLine) else { break }
+                    rows.append((scan, .body, rowCells))
+                    scan += 1
+                }
+
+                var widths = Array(repeating: 3, count: columnCount)
+                for row in rows where row.kind != .separator {
+                    let padded = padCells(row.cells, to: columnCount)
+                    for col in 0..<columnCount {
+                        widths[col] = max(widths[col], max(3, padded[col].count))
+                    }
+                }
+
+                let paddedAlignments = padAlignments(alignments, to: columnCount)
+
+                for row in rows {
+                    switch row.kind {
+                    case .separator:
+                        result[row.lineIndex] = TableLinePresentation(
+                            text: buildSeparatorRow(widths: widths, alignments: paddedAlignments),
+                            isHeader: false,
+                            isSeparator: true
+                        )
+                    case .header, .body:
+                        result[row.lineIndex] = TableLinePresentation(
+                            text: buildTableRow(
+                                cells: row.cells,
+                                widths: widths,
+                                alignments: paddedAlignments
+                            ),
+                            isHeader: row.kind == .header,
+                            isSeparator: false
+                        )
+                    }
+                }
+
+                index = scan
+            }
+
+            return result
+        }
+
+        private func parseTableCells(_ line: String) -> [String]? {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard trimmed.contains("|") else { return nil }
+
+            var content = trimmed
+            if content.hasPrefix("|") {
+                content.removeFirst()
+            }
+            if content.hasSuffix("|"), !content.isEmpty {
+                content.removeLast()
+            }
+
+            let parts = content
+                .split(separator: "|", omittingEmptySubsequences: false)
+                .map { String($0).trimmingCharacters(in: .whitespaces) }
+
+            guard parts.count >= 2 else { return nil }
+            return parts
+        }
+
+        private func parseTableSeparator(_ line: String) -> [TableAlignment]? {
+            guard let cells = parseTableCells(line), !cells.isEmpty else { return nil }
+            var alignments: [TableAlignment] = []
+
+            for cell in cells {
+                let token = cell.replacingOccurrences(of: " ", with: "")
+                let dashCount = token.filter { $0 == "-" }.count
+                guard dashCount >= 3 else { return nil }
+                guard token.allSatisfy({ $0 == "-" || $0 == ":" }) else { return nil }
+
+                let leftColon = token.first == ":"
+                let rightColon = token.last == ":"
+                if leftColon && rightColon {
+                    alignments.append(.center)
+                } else if rightColon {
+                    alignments.append(.right)
+                } else {
+                    alignments.append(.left)
+                }
+            }
+
+            return alignments
+        }
+
+        private func padCells(_ cells: [String], to count: Int) -> [String] {
+            guard cells.count < count else { return Array(cells.prefix(count)) }
+            return cells + Array(repeating: "", count: count - cells.count)
+        }
+
+        private func padAlignments(_ alignments: [TableAlignment], to count: Int) -> [TableAlignment] {
+            guard alignments.count < count else { return Array(alignments.prefix(count)) }
+            return alignments + Array(repeating: .left, count: count - alignments.count)
+        }
+
+        private func buildTableRow(cells: [String], widths: [Int], alignments: [TableAlignment]) -> String {
+            let paddedCells = padCells(cells, to: widths.count)
+            var rendered: [String] = []
+
+            for index in 0..<widths.count {
+                rendered.append(
+                    alignCell(
+                        paddedCells[index],
+                        width: widths[index],
+                        alignment: alignments[index]
+                    )
+                )
+            }
+
+            return "│ " + rendered.joined(separator: " │ ") + " │"
+        }
+
+        private func buildSeparatorRow(widths: [Int], alignments: [TableAlignment]) -> String {
+            var cells: [String] = []
+            for index in 0..<widths.count {
+                let width = max(3, widths[index])
+                switch alignments[index] {
+                case .left:
+                    cells.append(String(repeating: "-", count: width))
+                case .center:
+                    cells.append(":" + String(repeating: "-", count: max(1, width - 2)) + ":")
+                case .right:
+                    cells.append(String(repeating: "-", count: max(1, width - 1)) + ":")
+                }
+            }
+
+            let converted = cells.map { segment in
+                segment.replacingOccurrences(of: ":", with: "─").replacingOccurrences(of: "-", with: "─")
+            }
+            return "├─" + converted.joined(separator: "─┼─") + "─┤"
+        }
+
+        private func alignCell(_ text: String, width: Int, alignment: TableAlignment) -> String {
+            let padding = max(0, width - text.count)
+            switch alignment {
+            case .left:
+                return text + String(repeating: " ", count: padding)
+            case .center:
+                let leftPadding = padding / 2
+                let rightPadding = padding - leftPadding
+                return String(repeating: " ", count: leftPadding) + text + String(repeating: " ", count: rightPadding)
+            case .right:
+                return String(repeating: " ", count: padding) + text
+            }
+        }
+
         private func lineIndex(of characterIndex: Int, in text: String) -> Int {
             let nsText = text as NSString
             let safeIndex = min(max(characterIndex, 0), nsText.length)
@@ -310,6 +871,50 @@ struct MarkdownEditorView: NSViewRepresentable {
                 i += 1
             }
             return line
+        }
+
+        private func lineAndColumn(of characterIndex: Int, in text: String) -> (line: Int, column: Int) {
+            let nsText = text as NSString
+            let safeIndex = min(max(characterIndex, 0), nsText.length)
+            var line = 0
+            var lineStart = 0
+            var i = 0
+            while i < safeIndex {
+                if nsText.character(at: i) == 10 {
+                    line += 1
+                    lineStart = i + 1
+                }
+                i += 1
+            }
+            return (line, safeIndex - lineStart)
+        }
+
+        private func characterOffset(forLine targetLine: Int, column: Int, in text: String) -> Int {
+            let nsText = text as NSString
+            let length = nsText.length
+            if targetLine <= 0 {
+                return min(max(column, 0), length)
+            }
+
+            var line = 0
+            var index = 0
+            var lineStart = 0
+
+            while index < length, line < targetLine {
+                if nsText.character(at: index) == 10 {
+                    line += 1
+                    lineStart = index + 1
+                }
+                index += 1
+            }
+
+            var lineEnd = lineStart
+            while lineEnd < length, nsText.character(at: lineEnd) != 10 {
+                lineEnd += 1
+            }
+
+            let lineLength = max(0, lineEnd - lineStart)
+            return lineStart + min(max(column, 0), lineLength)
         }
 
         private func commonPrefixCount(_ lhs: [String], _ rhs: [String]) -> Int {
@@ -373,11 +978,8 @@ final class MarkdownRenderer {
         if line.hasPrefix(">") {
             return renderBlockquote(line)
         }
-        if line.hasPrefix("- ") || line.hasPrefix("* ") || line.hasPrefix("+ ") {
-            return renderUnorderedList(line)
-        }
-        if isOrderedList(line) {
-            return renderOrderedList(line)
+        if let listLine = parseListLine(line) {
+            return renderListLine(listLine)
         }
         if line == "---" || line == "***" || line == "___" {
             return renderHorizontalRule()
@@ -386,11 +988,35 @@ final class MarkdownRenderer {
         return renderInlineMarkdown(line)
     }
 
-    private func isOrderedList(_ line: String) -> Bool {
-        let trimmed = line.trimmingCharacters(in: .whitespaces)
-        let parts = trimmed.split(separator: ".", maxSplits: 1)
-        guard parts.count == 2 else { return false }
-        return parts[0].allSatisfy { $0.isNumber }
+    func renderTableLine(_ line: String, isHeader: Bool, isSeparator: Bool) -> NSAttributedString {
+        let style = NSMutableParagraphStyle()
+        style.paragraphSpacing = 4
+
+        if isSeparator {
+            return NSAttributedString(string: line, attributes: [
+                .font: NSFont.monospacedSystemFont(ofSize: 13, weight: .medium),
+                .foregroundColor: NSColor.separatorColor,
+                .paragraphStyle: style
+            ])
+        }
+
+        return NSAttributedString(string: line, attributes: [
+            .font: NSFont.monospacedSystemFont(ofSize: 14, weight: isHeader ? .semibold : .regular),
+            .foregroundColor: NSColor.labelColor,
+            .backgroundColor: isHeader ? NSColor.controlBackgroundColor : NSColor.textBackgroundColor,
+            .paragraphStyle: style
+        ])
+    }
+
+    func renderHiddenTablePlaceholder(_ line: String) -> NSAttributedString {
+        let style = NSMutableParagraphStyle()
+        style.paragraphSpacing = 4
+        return NSAttributedString(string: line, attributes: [
+            .font: NSFont.monospacedSystemFont(ofSize: 14, weight: .regular),
+            .foregroundColor: NSColor.clear,
+            .backgroundColor: NSColor.clear,
+            .paragraphStyle: style
+        ])
     }
 
     private func renderHeading(_ line: String) -> NSAttributedString {
@@ -436,46 +1062,61 @@ final class MarkdownRenderer {
         ])
     }
 
-    private func renderUnorderedList(_ line: String) -> NSAttributedString {
-        let text = String(line.dropFirst(2))
-        let style = NSMutableParagraphStyle()
-        style.firstLineHeadIndent = 22
-        style.headIndent = 22
-        style.paragraphSpacing = 4
-
-        let prefix = NSAttributedString(string: "• ", attributes: [
-            .font: NSFont.systemFont(ofSize: 16),
-            .foregroundColor: NSColor.labelColor,
-            .paragraphStyle: style
-        ])
-
-        let content = NSMutableAttributedString(attributedString: renderInlineMarkdown(text))
-        content.addAttribute(.paragraphStyle, value: style, range: NSRange(location: 0, length: content.length))
-
-        let result = NSMutableAttributedString()
-        result.append(prefix)
-        result.append(content)
-        return result
+    private struct ListLine {
+        let indentCount: Int
+        let marker: String
+        let text: String
     }
 
-    private func renderOrderedList(_ line: String) -> NSAttributedString {
+    private func parseListLine(_ line: String) -> ListLine? {
+        let indentCount = line.prefix { $0 == " " || $0 == "\t" }.count
         let trimmed = line.trimmingCharacters(in: .whitespaces)
-        let parts = trimmed.split(separator: ".", maxSplits: 1)
-        let number = parts.count > 0 ? String(parts[0]) : "1"
-        let content = parts.count > 1 ? String(parts[1]).trimmingCharacters(in: .whitespaces) : trimmed
+        guard !trimmed.isEmpty else { return nil }
+
+        let nsTrimmed = trimmed as NSString
+        let fullRange = NSRange(location: 0, length: nsTrimmed.length)
+        if let taskRegex = try? NSRegularExpression(pattern: #"^([-+*])\s*\[( |x|X)?\]\s*(.*)$"#),
+           let taskMatch = taskRegex.firstMatch(in: trimmed, range: fullRange),
+           taskMatch.numberOfRanges == 4 {
+            let state = taskMatch.range(at: 2).location == NSNotFound
+                ? ""
+                : nsTrimmed.substring(with: taskMatch.range(at: 2))
+            let marker = state.lowercased() == "x" ? "☑" : "☐"
+            let content = nsTrimmed.substring(with: taskMatch.range(at: 3))
+            return ListLine(indentCount: indentCount, marker: marker, text: content)
+        }
+        if trimmed.hasPrefix("- ") || trimmed.hasPrefix("* ") || trimmed.hasPrefix("+ ") {
+            return ListLine(indentCount: indentCount, marker: "•", text: String(trimmed.dropFirst(2)))
+        }
+
+        guard let regex = try? NSRegularExpression(pattern: #"^(\d+)\.\s+(.+)$"#),
+              let match = regex.firstMatch(in: trimmed, range: fullRange),
+              match.numberOfRanges == 3 else {
+            return nil
+        }
+        let number = nsTrimmed.substring(with: match.range(at: 1))
+        let content = nsTrimmed.substring(with: match.range(at: 2))
+        return ListLine(indentCount: indentCount, marker: "\(number).", text: content)
+    }
+
+    private func renderListLine(_ listLine: ListLine) -> NSAttributedString {
+        let indentLevel = listLine.indentCount / 2
+        let baseIndent: CGFloat = 22
+        let nestedOffset = CGFloat(indentLevel) * 18
+        let markerWidth: CGFloat = listLine.marker.count > 1 ? 26 : 20
 
         let style = NSMutableParagraphStyle()
-        style.firstLineHeadIndent = 22
-        style.headIndent = 22
+        style.firstLineHeadIndent = baseIndent + nestedOffset
+        style.headIndent = baseIndent + nestedOffset + markerWidth
         style.paragraphSpacing = 4
 
-        let prefix = NSAttributedString(string: number + ". ", attributes: [
+        let prefix = NSAttributedString(string: listLine.marker + " ", attributes: [
             .font: NSFont.systemFont(ofSize: 16),
             .foregroundColor: NSColor.labelColor,
             .paragraphStyle: style
         ])
 
-        let contentAttr = NSMutableAttributedString(attributedString: renderInlineMarkdown(content))
+        let contentAttr = NSMutableAttributedString(attributedString: renderInlineMarkdown(listLine.text))
         contentAttr.addAttribute(.paragraphStyle, value: style, range: NSRange(location: 0, length: contentAttr.length))
 
         let result = NSMutableAttributedString()
@@ -614,5 +1255,11 @@ final class MarkdownRenderer {
             let replacement = replacementBuilder(text)
             attributed.replaceCharacters(in: full, with: replacement)
         }
+    }
+}
+
+final class PassthroughWKWebView: WKWebView {
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
     }
 }
