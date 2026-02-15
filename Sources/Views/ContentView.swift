@@ -22,7 +22,7 @@ struct MarkdownEditorView: NSViewRepresentable {
     @Binding var text: String
 
     func makeNSView(context: Context) -> NSScrollView {
-        let textView = HoverAwareTextView(frame: .zero)
+        let textView = NSTextView(frame: .zero)
         let scrollView = NSScrollView(frame: .zero)
         scrollView.documentView = textView
 
@@ -64,13 +64,6 @@ struct MarkdownEditorView: NSViewRepresentable {
         scrollView.drawsBackground = true
         scrollView.backgroundColor = NSColor.textBackgroundColor
 
-        textView.onMouseMoved = { [weak coordinator = context.coordinator] point in
-            coordinator?.handleMouseMoved(point: point)
-        }
-        textView.onMouseExited = { [weak coordinator = context.coordinator] in
-            coordinator?.handleMouseExited()
-        }
-
         context.coordinator.attach(to: textView, initialText: text)
 
         return scrollView
@@ -90,7 +83,8 @@ struct MarkdownEditorView: NSViewRepresentable {
 
         private var isUpdating = false
         private var sourceText = ""
-        private var hoveredLineIndex: Int?
+        private var focusedLineIndex: Int?
+        private var activeCodeBlockRange: ClosedRange<Int>?
         private var lastRenderedLines: [String] = []
 
         init(_ parent: MarkdownEditorView) {
@@ -100,19 +94,56 @@ struct MarkdownEditorView: NSViewRepresentable {
         func attach(to textView: NSTextView, initialText: String) {
             self.textView = textView
             sourceText = initialText
-            hoveredLineIndex = nil
+            focusedLineIndex = 0
+            updateActiveCodeBlockRange()
             renderProjection(keepSelection: false)
         }
 
         func applyExternalText(_ text: String) {
             guard !isUpdating, text != sourceText else { return }
             sourceText = text
+            updateActiveCodeBlockRange()
             renderProjection(keepSelection: true)
         }
 
         func textViewDidChangeSelection(_ notification: Notification) {
-            // Selection moves should not force source-markup visibility.
-            guard !isUpdating else { return }
+            guard !isUpdating, let textView = textView else { return }
+
+            // Avoid clobbering in-flight edits (for example pressing Return) by
+            // re-rendering from stale sourceText before textDidChange syncs.
+            let currentDisplayLines = textView.string.components(separatedBy: "\n")
+            guard currentDisplayLines == lastRenderedLines else { return }
+
+            updateFocusForCurrentSelection(shouldRender: true)
+        }
+
+        func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+            guard commandSelector == #selector(NSResponder.insertNewline(_:)), !isUpdating else {
+                return false
+            }
+
+            let selection = textView.selectedRange()
+            guard selection.length == 0 else { return false }
+
+            let displayText = textView.string as NSString
+            let lineRange = displayText.lineRange(for: NSRange(location: selection.location, length: 0))
+            let lineTextWithTerminator = displayText.substring(with: lineRange)
+            let lineText = lineTextWithTerminator.trimmingCharacters(in: .newlines)
+
+            guard lineText == "```" else { return false }
+
+            let lineTextLength = lineTextWithTerminator.hasSuffix("\n")
+                ? (lineTextWithTerminator as NSString).length - 1
+                : (lineTextWithTerminator as NSString).length
+            let lineEndLocation = lineRange.location + lineTextLength
+            guard selection.location == lineEndLocation else { return false }
+            let currentLineIndex = lineIndex(of: selection.location, in: textView.string)
+            guard isOpeningFenceLine(currentLineIndex) else { return false }
+
+            textView.insertText("\n\n```", replacementRange: selection)
+            textView.setSelectedRange(NSRange(location: selection.location + 1, length: 0))
+            updateFocusForCurrentSelection(shouldRender: true)
+            return true
         }
 
         func textDidChange(_ notification: Notification) {
@@ -123,6 +154,7 @@ struct MarkdownEditorView: NSViewRepresentable {
             patchSourceLines(previous: previousDisplayLines, current: currentDisplayLines)
 
             parent.text = sourceText
+            updateFocusForCurrentSelection(shouldRender: false)
             renderProjection(keepSelection: true)
         }
 
@@ -162,7 +194,7 @@ struct MarkdownEditorView: NSViewRepresentable {
 
             for (index, line) in sourceLines.enumerated() {
                 let lineAttr: NSAttributedString
-                if index == hoveredLineIndex {
+                if shouldShowRaw(lineIndex: index) {
                     lineAttr = MarkdownRenderer.shared.renderRawLine(line)
                 } else {
                     lineAttr = MarkdownRenderer.shared.renderLine(line, inCodeBlock: &inCodeBlock)
@@ -186,6 +218,84 @@ struct MarkdownEditorView: NSViewRepresentable {
             } else {
                 textView.setSelectedRange(NSRange(location: 0, length: 0))
             }
+        }
+
+        private func shouldShowRaw(lineIndex: Int) -> Bool {
+            if focusedLineIndex == lineIndex {
+                return true
+            }
+            if let range = activeCodeBlockRange, range.contains(lineIndex) {
+                return true
+            }
+            return false
+        }
+
+        private func updateFocusForCurrentSelection(shouldRender: Bool) {
+            guard let textView = textView else { return }
+            let selectedLine = lineIndex(of: textView.selectedRange().location, in: textView.string)
+            let lineChanged = selectedLine != focusedLineIndex
+            let previousCodeBlockRange = activeCodeBlockRange
+            focusedLineIndex = selectedLine
+            updateActiveCodeBlockRange()
+
+            guard shouldRender else { return }
+            if lineChanged || previousCodeBlockRange != activeCodeBlockRange {
+                renderProjection(keepSelection: true)
+            }
+        }
+
+        private func updateActiveCodeBlockRange() {
+            guard let focusedLineIndex else {
+                activeCodeBlockRange = nil
+                return
+            }
+
+            let sourceLines = sourceText.components(separatedBy: "\n")
+            activeCodeBlockRange = codeBlockRange(containing: focusedLineIndex, in: sourceLines)
+        }
+
+        private func codeBlockRange(containing line: Int, in lines: [String]) -> ClosedRange<Int>? {
+            guard !lines.isEmpty, line >= 0, line < lines.count else { return nil }
+
+            var fenceStart: Int?
+            for (index, content) in lines.enumerated() {
+                guard content.hasPrefix("```") else { continue }
+                if let start = fenceStart {
+                    let range = start...index
+                    if range.contains(line) {
+                        return range
+                    }
+                    fenceStart = nil
+                } else {
+                    fenceStart = index
+                }
+            }
+
+            if let start = fenceStart {
+                let range = start...(lines.count - 1)
+                if range.contains(line) {
+                    return range
+                }
+            }
+
+            return nil
+        }
+
+        private func isOpeningFenceLine(_ lineIndex: Int) -> Bool {
+            let sourceLines = sourceText.components(separatedBy: "\n")
+            guard lineIndex >= 0, lineIndex < sourceLines.count else { return false }
+            guard sourceLines[lineIndex] == "```" else { return false }
+
+            var inCodeBlock = false
+            for (index, line) in sourceLines.enumerated() {
+                guard line.hasPrefix("```") else { continue }
+                if index == lineIndex {
+                    return !inCodeBlock
+                }
+                inCodeBlock.toggle()
+            }
+
+            return false
         }
 
         private func lineIndex(of characterIndex: Int, in text: String) -> Int {
@@ -226,99 +336,6 @@ struct MarkdownEditorView: NSViewRepresentable {
 
             return count
         }
-
-        func handleMouseMoved(point: NSPoint) {
-            guard let textView = textView, !isUpdating else { return }
-            let insertionLine = lineIndex(
-                of: textView.characterIndexForInsertion(at: point),
-                in: textView.string
-            )
-
-            if let currentHovered = hoveredLineIndex, insertionLine == currentHovered {
-                return
-            }
-
-            let newHovered: Int?
-            if let hitCharIndex = contentCharacterIndex(at: point, in: textView) {
-                newHovered = lineIndex(of: hitCharIndex, in: textView.string)
-            } else {
-                newHovered = nil
-            }
-
-            guard newHovered != hoveredLineIndex else { return }
-            hoveredLineIndex = newHovered
-            renderProjection(keepSelection: true)
-        }
-
-        func handleMouseExited() {
-            guard hoveredLineIndex != nil else { return }
-            hoveredLineIndex = nil
-            renderProjection(keepSelection: true)
-        }
-
-        private func contentCharacterIndex(at point: NSPoint, in textView: NSTextView) -> Int? {
-            guard
-                let layoutManager = textView.layoutManager,
-                let textContainer = textView.textContainer
-            else {
-                return nil
-            }
-
-            let containerPoint = NSPoint(
-                x: point.x - textView.textContainerInset.width,
-                y: point.y - textView.textContainerInset.height
-            )
-
-            let glyphIndex = layoutManager.glyphIndex(for: containerPoint, in: textContainer)
-            guard glyphIndex < layoutManager.numberOfGlyphs else { return nil }
-
-            let glyphRange = NSRange(location: glyphIndex, length: 1)
-            let glyphRect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer).insetBy(dx: -1, dy: -1)
-            guard glyphRect.contains(containerPoint) else { return nil }
-
-            let charIndex = layoutManager.characterIndexForGlyph(at: glyphIndex)
-            let nsText = textView.string as NSString
-            guard charIndex < nsText.length else { return nil }
-
-            let codeUnit = nsText.character(at: charIndex)
-            guard let scalar = UnicodeScalar(codeUnit) else { return nil }
-            guard !CharacterSet.whitespacesAndNewlines.contains(scalar) else { return nil }
-
-            return charIndex
-        }
-    }
-}
-
-final class HoverAwareTextView: NSTextView {
-    var onMouseMoved: ((NSPoint) -> Void)?
-    var onMouseExited: (() -> Void)?
-    private var tracking: NSTrackingArea?
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let tracking {
-            removeTrackingArea(tracking)
-        }
-
-        let options: NSTrackingArea.Options = [.inVisibleRect, .mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow]
-        let area = NSTrackingArea(rect: .zero, options: options, owner: self, userInfo: nil)
-        addTrackingArea(area)
-        tracking = area
-    }
-
-    override func mouseMoved(with event: NSEvent) {
-        super.mouseMoved(with: event)
-        onMouseMoved?(convert(event.locationInWindow, from: nil))
-    }
-
-    override func mouseExited(with event: NSEvent) {
-        super.mouseExited(with: event)
-        onMouseExited?()
-    }
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        window?.acceptsMouseMovedEvents = true
     }
 }
 
