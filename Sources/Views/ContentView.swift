@@ -23,7 +23,7 @@ struct MarkdownEditorView: NSViewRepresentable {
     @Binding var text: String
 
     func makeNSView(context: Context) -> NSScrollView {
-        let textView = NSTextView(frame: .zero)
+        let textView = ShortcutAwareTextView(frame: .zero)
         let scrollView = NSScrollView(frame: .zero)
         scrollView.documentView = textView
 
@@ -64,6 +64,13 @@ struct MarkdownEditorView: NSViewRepresentable {
         scrollView.hasHorizontalScroller = false
         scrollView.drawsBackground = true
         scrollView.backgroundColor = NSColor.textBackgroundColor
+
+        textView.onBoldShortcut = { [weak coordinator = context.coordinator] in
+            coordinator?.applyMarkdownWrap(marker: "**")
+        }
+        textView.onItalicShortcut = { [weak coordinator = context.coordinator] in
+            coordinator?.applyMarkdownWrap(marker: "*")
+        }
 
         context.coordinator.attach(to: textView, initialText: text)
 
@@ -233,6 +240,24 @@ struct MarkdownEditorView: NSViewRepresentable {
             }
 
             return nil
+        }
+
+        func applyMarkdownWrap(marker: String) {
+            guard !isUpdating, let textView = textView else { return }
+            let selection = textView.selectedRange()
+            let insertion = selection.location
+
+            if selection.length > 0 {
+                let nsText = textView.string as NSString
+                let selected = nsText.substring(with: selection)
+                let wrapped = marker + selected + marker
+                textView.insertText(wrapped, replacementRange: selection)
+                textView.setSelectedRange(NSRange(location: insertion + marker.count, length: selection.length))
+            } else {
+                textView.insertText(marker + marker, replacementRange: selection)
+                textView.setSelectedRange(NSRange(location: insertion + marker.count, length: 0))
+            }
+            updateFocusForCurrentSelection(shouldRender: true)
         }
 
         func textDidChange(_ notification: Notification) {
@@ -1261,5 +1286,26 @@ final class MarkdownRenderer {
 final class PassthroughWKWebView: WKWebView {
     override func hitTest(_ point: NSPoint) -> NSView? {
         nil
+    }
+}
+
+final class ShortcutAwareTextView: NSTextView {
+    var onBoldShortcut: (() -> Void)?
+    var onItalicShortcut: (() -> Void)?
+
+    override func keyDown(with event: NSEvent) {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let usesBoldItalicShortcut = flags == [.control] || flags == [.command]
+        if usesBoldItalicShortcut, let chars = event.charactersIgnoringModifiers?.lowercased() {
+            if chars == "b" {
+                onBoldShortcut?()
+                return
+            }
+            if chars == "i" {
+                onItalicShortcut?()
+                return
+            }
+        }
+        super.keyDown(with: event)
     }
 }
