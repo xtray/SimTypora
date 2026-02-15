@@ -1,0 +1,45 @@
+name: Release macOS App
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build Release app
+        run: |
+          xcodebuild \
+            -project SimTypora.xcodeproj \
+            -scheme SimTypora \
+            -configuration Release \
+            -sdk macosx \
+            -derivedDataPath "$RUNNER_TEMP/SimTyporaDerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            build
+
+      - name: Package app bundle
+        run: |
+          APP_PATH="$RUNNER_TEMP/SimTyporaDerivedData/Build/Products/Release/SimTypora.app"
+          VERSION="${GITHUB_REF_NAME}"
+          ZIP_NAME="SimTypora-${VERSION}-macOS.zip"
+
+          test -d "$APP_PATH"
+          ditto -c -k --keepParent "$APP_PATH" "$ZIP_NAME"
+          echo "ZIP_NAME=$ZIP_NAME" >> "$GITHUB_ENV"
+
+      - name: Create GitHub release and upload asset
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.ZIP_NAME }}
+          generate_release_notes: true
