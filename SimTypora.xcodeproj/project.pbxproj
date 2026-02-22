@@ -3,19 +3,45 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 77;
+	objectVersion = 63;
 	objects = {
 
 /* Begin PBXBuildFile section */
-		08A4C5AE1328241B18346989 /* SimTyporaApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 682B9985985B5FB8A2F3FA6A /* SimTyporaApp.swift */; };
-		1720A53D17F29581CE6763FA /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA9147C12AEA43D76EE593EB /* ContentView.swift */; };
-		75A884C3828A79B7A36B1B33 /* MarkdownDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = 997D796C5ED4ED4063AB2D4C /* MarkdownDocument.swift */; };
-		862F4B761756100E823C432D /* MarkdownParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8315F3D25DC7FD874098F4A /* MarkdownParser.swift */; };
+		B0C5EDF72F4ACE4E002B842F /* MarkdownEditingLogicTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0C5EDF22F4ACE4E002B842F /* MarkdownEditingLogicTests.swift */; };
+		B0C5EDF82F4ACE4E002B842F /* SimTyporaApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0C5EDE72F4ACE4E002B842F /* SimTyporaApp.swift */; };
+		B0C5EDF92F4ACE4E002B842F /* MarkdownHTMLRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0C5EDEC2F4ACE4E002B842F /* MarkdownHTMLRenderer.swift */; };
+		B0C5EDFA2F4ACE4E002B842F /* MarkdownParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0C5EDED2F4ACE4E002B842F /* MarkdownParser.swift */; };
+		B0C5EDFB2F4ACE4E002B842F /* MarkdownHTMLRendererTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0C5EDF32F4ACE4E002B842F /* MarkdownHTMLRendererTests.swift */; };
+		B0C5EDFC2F4ACE4E002B842F /* MarkdownEditingLogic.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0C5EDEB2F4ACE4E002B842F /* MarkdownEditingLogic.swift */; };
+		B0C5EDFD2F4ACE4E002B842F /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0C5EDEF2F4ACE4E002B842F /* ContentView.swift */; };
+		B0C5EDFE2F4ACE4E002B842F /* MarkdownDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0C5EDE92F4ACE4E002B842F /* MarkdownDocument.swift */; };
+		C1A700012F4B000100000001 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B0C5EDDB2F4ACE4E002B842F /* Assets.xcassets */; };
+		C1A700022F4B000100000001 /* AppIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = B0C5EDDA2F4ACE4E002B842F /* AppIcon.icns */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		682B9985985B5FB8A2F3FA6A /* SimTyporaApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimTyporaApp.swift; sourceTree = "<group>"; };
 		997D796C5ED4ED4063AB2D4C /* MarkdownDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownDocument.swift; sourceTree = "<group>"; };
+		B0C5EDD32F4ACE4E002B842F /* 2026-02-14-typora-inplace-design.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = "2026-02-14-typora-inplace-design.md"; sourceTree = "<group>"; };
+		B0C5EDD42F4ACE4E002B842F /* 2026-02-14-typora-inplace-implementation-plan.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = "2026-02-14-typora-inplace-implementation-plan.md"; sourceTree = "<group>"; };
+		B0C5EDD72F4ACE4E002B842F /* LICENSE */ = {isa = PBXFileReference; lastKnownFileType = text; path = LICENSE; sourceTree = "<group>"; };
+		B0C5EDD82F4ACE4E002B842F /* project.yml */ = {isa = PBXFileReference; lastKnownFileType = text.yaml; path = project.yml; sourceTree = "<group>"; };
+		B0C5EDD92F4ACE4E002B842F /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
+		B0C5EDDA2F4ACE4E002B842F /* AppIcon.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = AppIcon.icns; sourceTree = "<group>"; };
+		B0C5EDDB2F4ACE4E002B842F /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		B0C5EDDC2F4ACE4E002B842F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		B0C5EDDE2F4ACE4E002B842F /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		B0C5EDE62F4ACE4E002B842F /* SimTypora.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = SimTypora.xcodeproj; sourceTree = "<group>"; };
+		B0C5EDE72F4ACE4E002B842F /* SimTyporaApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimTyporaApp.swift; sourceTree = "<group>"; };
+		B0C5EDE92F4ACE4E002B842F /* MarkdownDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownDocument.swift; sourceTree = "<group>"; };
+		B0C5EDEB2F4ACE4E002B842F /* MarkdownEditingLogic.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownEditingLogic.swift; sourceTree = "<group>"; };
+		B0C5EDEC2F4ACE4E002B842F /* MarkdownHTMLRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownHTMLRenderer.swift; sourceTree = "<group>"; };
+		B0C5EDED2F4ACE4E002B842F /* MarkdownParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownParser.swift; sourceTree = "<group>"; };
+		B0C5EDEF2F4ACE4E002B842F /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		B0C5EDF22F4ACE4E002B842F /* MarkdownEditingLogicTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownEditingLogicTests.swift; sourceTree = "<group>"; };
+		B0C5EDF32F4ACE4E002B842F /* MarkdownHTMLRendererTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownHTMLRendererTests.swift; sourceTree = "<group>"; };
+		B605EE0B97F5AB6017271C97 /* MarkdownEditingLogic.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownEditingLogic.swift; sourceTree = "<group>"; };
+		BA8A517B0B1C7F0FDCE2A48A /* MarkdownHTMLRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownHTMLRenderer.swift; sourceTree = "<group>"; };
 		D748BA19E2E602E54C5DA8F5 /* SimTypora.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SimTypora.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		DA9147C12AEA43D76EE593EB /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		F8315F3D25DC7FD874098F4A /* MarkdownParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownParser.swift; sourceTree = "<group>"; };
@@ -33,6 +59,15 @@
 		64800CF730BF7B0327047583 = {
 			isa = PBXGroup;
 			children = (
+				B0C5EDD62F4ACE4E002B842F /* docs */,
+				B0C5EDD72F4ACE4E002B842F /* LICENSE */,
+				B0C5EDD82F4ACE4E002B842F /* project.yml */,
+				B0C5EDD92F4ACE4E002B842F /* README.md */,
+				B0C5EDDD2F4ACE4E002B842F /* Resources */,
+				B0C5EDE52F4ACE4E002B842F /* SimTypora */,
+				B0C5EDE62F4ACE4E002B842F /* SimTypora.xcodeproj */,
+				B0C5EDF12F4ACE4E002B842F /* Sources */,
+				B0C5EDF42F4ACE4E002B842F /* Tests */,
 				A308D0254F9424248EC1F71B /* Sources */,
 				25F9F103BA2FF44E22058002 /* Products */,
 			);
@@ -49,6 +84,8 @@
 		7927804A881113EA06D44FB9 /* Utils */ = {
 			isa = PBXGroup;
 			children = (
+				B605EE0B97F5AB6017271C97 /* MarkdownEditingLogic.swift */,
+				BA8A517B0B1C7F0FDCE2A48A /* MarkdownHTMLRenderer.swift */,
 				F8315F3D25DC7FD874098F4A /* MarkdownParser.swift */,
 			);
 			path = Utils;
@@ -63,6 +100,148 @@
 				CEDF719B61D04C8213361858 /* Views */,
 			);
 			path = Sources;
+			sourceTree = "<group>";
+		};
+		B0C5EDD52F4ACE4E002B842F /* plans */ = {
+			isa = PBXGroup;
+			children = (
+				B0C5EDD32F4ACE4E002B842F /* 2026-02-14-typora-inplace-design.md */,
+				B0C5EDD42F4ACE4E002B842F /* 2026-02-14-typora-inplace-implementation-plan.md */,
+			);
+			path = plans;
+			sourceTree = "<group>";
+		};
+		B0C5EDD62F4ACE4E002B842F /* docs */ = {
+			isa = PBXGroup;
+			children = (
+				B0C5EDD52F4ACE4E002B842F /* plans */,
+			);
+			path = docs;
+			sourceTree = "<group>";
+		};
+		B0C5EDDD2F4ACE4E002B842F /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				B0C5EDDA2F4ACE4E002B842F /* AppIcon.icns */,
+				B0C5EDDB2F4ACE4E002B842F /* Assets.xcassets */,
+				B0C5EDDC2F4ACE4E002B842F /* Info.plist */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		B0C5EDDF2F4ACE4E002B842F /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				B0C5EDDE2F4ACE4E002B842F /* Assets.xcassets */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		B0C5EDE02F4ACE4E002B842F /* App */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		B0C5EDE12F4ACE4E002B842F /* Models */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		B0C5EDE22F4ACE4E002B842F /* Utils */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			path = Utils;
+			sourceTree = "<group>";
+		};
+		B0C5EDE32F4ACE4E002B842F /* Views */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		B0C5EDE42F4ACE4E002B842F /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				B0C5EDE02F4ACE4E002B842F /* App */,
+				B0C5EDE12F4ACE4E002B842F /* Models */,
+				B0C5EDE22F4ACE4E002B842F /* Utils */,
+				B0C5EDE32F4ACE4E002B842F /* Views */,
+			);
+			path = Sources;
+			sourceTree = "<group>";
+		};
+		B0C5EDE52F4ACE4E002B842F /* SimTypora */ = {
+			isa = PBXGroup;
+			children = (
+				B0C5EDDF2F4ACE4E002B842F /* Resources */,
+				B0C5EDE42F4ACE4E002B842F /* Sources */,
+			);
+			path = SimTypora;
+			sourceTree = "<group>";
+		};
+		B0C5EDE82F4ACE4E002B842F /* App */ = {
+			isa = PBXGroup;
+			children = (
+				B0C5EDE72F4ACE4E002B842F /* SimTyporaApp.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		B0C5EDEA2F4ACE4E002B842F /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				B0C5EDE92F4ACE4E002B842F /* MarkdownDocument.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		B0C5EDEE2F4ACE4E002B842F /* Utils */ = {
+			isa = PBXGroup;
+			children = (
+				B0C5EDEB2F4ACE4E002B842F /* MarkdownEditingLogic.swift */,
+				B0C5EDEC2F4ACE4E002B842F /* MarkdownHTMLRenderer.swift */,
+				B0C5EDED2F4ACE4E002B842F /* MarkdownParser.swift */,
+			);
+			path = Utils;
+			sourceTree = "<group>";
+		};
+		B0C5EDF02F4ACE4E002B842F /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				B0C5EDEF2F4ACE4E002B842F /* ContentView.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		B0C5EDF12F4ACE4E002B842F /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				B0C5EDE82F4ACE4E002B842F /* App */,
+				B0C5EDEA2F4ACE4E002B842F /* Models */,
+				B0C5EDEE2F4ACE4E002B842F /* Utils */,
+				B0C5EDF02F4ACE4E002B842F /* Views */,
+			);
+			path = Sources;
+			sourceTree = "<group>";
+		};
+		B0C5EDF42F4ACE4E002B842F /* Tests */ = {
+			isa = PBXGroup;
+			children = (
+				B0C5EDF22F4ACE4E002B842F /* MarkdownEditingLogicTests.swift */,
+				B0C5EDF32F4ACE4E002B842F /* MarkdownHTMLRendererTests.swift */,
+			);
+			path = Tests;
+			sourceTree = "<group>";
+		};
+		B0C5EDF52F4ACE4E002B842F /* Products */ = {
+			isa = PBXGroup;
+			name = Products;
 			sourceTree = "<group>";
 		};
 		CEDF719B61D04C8213361858 /* Views */ = {
@@ -89,6 +268,7 @@
 			buildConfigurationList = 8F8F034A8E3A194A6467F776 /* Build configuration list for PBXNativeTarget "SimTypora" */;
 			buildPhases = (
 				B3937756468485A43AF59F00 /* Sources */,
+				C1A700032F4B000100000001 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -126,8 +306,13 @@
 			);
 			mainGroup = 64800CF730BF7B0327047583;
 			minimizedProjectReferenceProxies = 1;
-			preferredProjectObjectVersion = 77;
 			projectDirPath = "";
+			projectReferences = (
+				{
+					ProductGroup = B0C5EDF52F4ACE4E002B842F /* Products */;
+					ProjectRef = B0C5EDE62F4ACE4E002B842F /* SimTypora.xcodeproj */;
+				},
+			);
 			projectRoot = "";
 			targets = (
 				41FA3F0AA0F220525681022A /* SimTypora */,
@@ -135,15 +320,31 @@
 		};
 /* End PBXProject section */
 
+/* Begin PBXResourcesBuildPhase section */
+		C1A700032F4B000100000001 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C1A700012F4B000100000001 /* Assets.xcassets in Resources */,
+				C1A700022F4B000100000001 /* AppIcon.icns in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		B3937756468485A43AF59F00 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				1720A53D17F29581CE6763FA /* ContentView.swift in Sources */,
-				75A884C3828A79B7A36B1B33 /* MarkdownDocument.swift in Sources */,
-				862F4B761756100E823C432D /* MarkdownParser.swift in Sources */,
-				08A4C5AE1328241B18346989 /* SimTyporaApp.swift in Sources */,
+				B0C5EDF72F4ACE4E002B842F /* MarkdownEditingLogicTests.swift in Sources */,
+				B0C5EDF82F4ACE4E002B842F /* SimTyporaApp.swift in Sources */,
+				B0C5EDF92F4ACE4E002B842F /* MarkdownHTMLRenderer.swift in Sources */,
+				B0C5EDFA2F4ACE4E002B842F /* MarkdownParser.swift in Sources */,
+				B0C5EDFB2F4ACE4E002B842F /* MarkdownHTMLRendererTests.swift in Sources */,
+				B0C5EDFC2F4ACE4E002B842F /* MarkdownEditingLogic.swift in Sources */,
+				B0C5EDFD2F4ACE4E002B842F /* ContentView.swift in Sources */,
+				B0C5EDFE2F4ACE4E002B842F /* MarkdownDocument.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
