@@ -17,7 +17,7 @@ Type:
 | --- | --- |
 | 1 | 2 |
 ```
-Press `Enter` at end of `| 1 | 2 |`.
+Press `Enter` at end of `| 1 | 2 |` to create an empty row, then press `Enter` again inside that empty row.
 Expected: current table block remains rendered, and a new block is created below in raw editing mode.
 
 3. Continue with non-table Markdown after table
@@ -25,8 +25,9 @@ In the new block below the table, type:
 ```markdown
 ## heading after table
 ```
-Click outside current editing block.
+Click the blank page area below or beside the current editing block.
 Expected: heading is rendered in `<h2>` style, not raw markdown.
+Also verify that pressing Enter at the end of the heading commits it, and that a trailing blank line can be committed with Enter. Blank lines inside fenced code must remain editable code.
 
 4. Invalid separator should not trap editing
 Type:

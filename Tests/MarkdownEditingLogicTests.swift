@@ -185,6 +185,21 @@ struct MarkdownEditingLogicTests {
                 )
             }
 
+            try run("table tab skips delimiter and supports reverse navigation") {
+                let text = "| 中文 | B |\n| --- | --- |\n| x | y |"
+                let forward = tableNavigationAction(in: text, selection: NSRange(location: 7, length: 0), backwards: false)
+                try expectEqual(forward?.updatedSelection.location, 27, "Tab should skip separator and select x")
+                let reverse = tableNavigationAction(in: text, selection: NSRange(location: 27, length: 0), backwards: true)
+                try expectEqual(reverse?.updatedSelection.location, 7, "Shift Tab should return to header B")
+            }
+
+            try run("Tab at last cell appends row; ordinary text is untouched") {
+                let text = "| a | b |\n| --- | --- |\n| x | y |"
+                let action = tableNavigationAction(in: text, selection: NSRange(location: (text as NSString).length - 2, length: 0), backwards: false)
+                try expectEqual(action?.updatedText, text + "\n|  |  |", "last cell should create a row")
+                try expectTrue(tableNavigationAction(in: "ordinary text", selection: NSRange(location: 0, length: 0), backwards: false) == nil, "non-table Tab must use normal behavior")
+            }
+
             try run("table separator continues with empty row template") {
                 let block = "| Name | Value |\n| --- | --- |"
                 let action = makeBlockReturnAction(block: block, selection: (block as NSString).length)
@@ -195,18 +210,41 @@ struct MarkdownEditingLogicTests {
                 )
             }
 
-            try run("table data row enter exits to next block") {
+            try run("table data row enter continues table") {
                 let block = "| Name | Value |\n| --- | --- |\n| Alice | 18 |"
                 let action = makeBlockReturnAction(block: block, selection: (block as NSString).length)
                 try expectEqual(
                     action?.nextBlock ?? "<nil>",
-                    "",
-                    "data row enter should exit table editing into the next block"
+                    "|  |  |",
+                    "data row enter should append an empty row"
                 )
                 try expectTrue(
-                    !shouldContinueEditingInSameBlock(block: block, continuation: action?.nextBlock ?? ""),
-                    "data row should not force staying in the same block"
+                    shouldContinueEditingInSameBlock(block: block, continuation: action?.nextBlock ?? ""),
+                    "data row should stay in the same block"
                 )
+            }
+
+            try run("Markdown after table commits even with a trailing blank line") {
+                let table = "| a | b |\n| --- | --- |\n| x | y |"
+                let exit = makeBlockReturnAction(block: table + "\n|  |  |", selection: (table as NSString).length + 3)
+                try expectEqual(exit?.currentBlock, table, "table should commit")
+                let paragraph = "## 标题\n"
+                let commit = makeBlockReturnAction(block: paragraph, selection: (paragraph as NSString).length)
+                try expectEqual(commit?.currentBlock, "## 标题", "blank-line return must commit heading")
+                try expectEqual(commit?.nextBlock, "", "caret should enter next paragraph")
+                try expectTrue(makeBlockReturnAction(block: "", selection: 0) == nil, "empty document should stay editable")
+            }
+
+            try run("empty final table row exits from inside a cell") {
+                let table = "| Name | Value |\n| --- | --- |\n| Alice | 18 |"
+                let block = table + "\n|  |  |"
+                for caret in [((table as NSString).length + 3), (block as NSString).length] {
+                    let action = makeBlockReturnAction(block: block, selection: caret)
+                    try expectEqual(action?.currentBlock, table, "exit must remove placeholder row")
+                    try expectEqual(action?.nextBlock, "", "exit must create paragraph after table")
+                }
+                let blank = table + "\n"
+                try expectEqual(makeBlockReturnAction(block: blank, selection: (blank as NSString).length)?.currentBlock, table, "blank final line must exit too")
             }
 
             try run("empty table row enter exits table into next block") {

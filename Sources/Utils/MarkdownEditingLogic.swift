@@ -161,9 +161,29 @@ func applyLineMarkdownStyle(
 func makeBlockReturnAction(block: String, selection: Int) -> BlockReturnAction? {
     let nsBlock = block as NSString
     let clamped = min(max(0, selection), nsBlock.length)
+    // Tab places the caret inside an empty cell, not at the end of its pipes.
+    // Handle table exit before the general end-of-block restriction.
+    let finalLine = trailingLine(in: block)
+    let finalLineStart = nsBlock.length - (finalLine as NSString).length
+    if selection == clamped, clamped >= finalLineStart,
+       let newline = block.range(of: "\n", options: .backwards) {
+        let table = String(block[..<newline.lowerBound])
+        let isEmptyRow = parseTableRow(finalLine)?.isAllEmpty == true
+        if hasSeparatorRowAbove(in: block),
+           isEmptyRow || finalLine.trimmingCharacters(in: .whitespaces).isEmpty {
+            return BlockReturnAction(currentBlock: table, nextBlock: "")
+        }
+    }
     guard clamped == nsBlock.length, selection == clamped else { return nil }
     let activeLine = trailingLine(in: block)
-    guard !activeLine.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
+    if activeLine.trimmingCharacters(in: .whitespaces).isEmpty {
+        // A blank line commits ordinary Markdown; preserve blank lines in code.
+        guard let newline = block.range(of: "\n", options: .backwards),
+              !block.components(separatedBy: "\n").contains(where: { parseFenceToken($0) != nil }) else { return nil }
+        let committed = String(block[..<newline.lowerBound])
+        guard !committed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        return BlockReturnAction(currentBlock: committed, nextBlock: "")
+    }
 
     if let fenceAction = makeFenceAutoCompletionAction(block: block, activeLine: activeLine) {
         return fenceAction
@@ -428,8 +448,7 @@ private func continuationPrefix(for line: String, in block: String) -> String {
             return makeEmptyTableRow(columnCount: table.cells.count, indent: table.indent)
         }
         if hasSeparatorRowAbove(in: block) {
-            // Leaving a populated table row should exit table editing into next block.
-            return ""
+            return makeEmptyTableRow(columnCount: table.cells.count, indent: table.indent)
         }
         return ""
     }
@@ -682,4 +701,45 @@ private func wordRange(in text: String, containingUTF16Index index: Int) -> NSRa
         }
     }
     return match
+}
+
+// Ranges use UTF-16, matching NSTextView selections including Chinese and emoji.
+func tableNavigationAction(in text: String, selection: NSRange, backwards: Bool) -> InlineMarkdownStyleAction? {
+    let lines = text.components(separatedBy: "\n")
+    guard lines.count >= 2,
+          let header = parseTableRow(lines[0]),
+          let separator = parseTableRow(lines[1]),
+          separator.isSeparatorRow, header.cells.count == separator.cells.count else { return nil }
+    var ranges: [NSRange] = []
+    var offset = 0
+    for (index, line) in lines.enumerated() {
+        defer { offset += (line as NSString).length + 1 }
+        guard let row = parseTableRow(line), row.cells.count == header.cells.count else { return nil }
+        if index == 1 { continue }
+        let ns = line as NSString
+        var boundaries = [-1]
+        for position in 0..<ns.length where ns.character(at: position) == 124 {
+            if position == 0 || ns.character(at: position - 1) != 92 { boundaries.append(position) }
+        }
+        boundaries.append(ns.length)
+        var cells: [NSRange] = []
+        for pair in zip(boundaries, boundaries.dropFirst()) {
+            let range = NSRange(location: pair.0 + 1, length: pair.1 - pair.0 - 1)
+            let raw = ns.substring(with: range)
+            if cells.isEmpty && pair.0 == -1 && raw.trimmingCharacters(in: .whitespaces).isEmpty { continue }
+            if pair.1 == ns.length && raw.trimmingCharacters(in: .whitespaces).isEmpty { continue }
+            let trimmed = raw.trimmingCharacters(in: .whitespaces)
+            let leading = (raw as NSString).length - (raw.drop(while: { $0.isWhitespace }) as NSString).length
+            cells.append(NSRange(location: offset + range.location + leading, length: (trimmed as NSString).length))
+        }
+        guard cells.count == header.cells.count else { return nil }
+        ranges += cells
+    }
+    guard let current = ranges.lastIndex(where: { $0.location <= selection.location }) else { return nil }
+    let next = current + (backwards ? -1 : 1)
+    if next < 0 { return InlineMarkdownStyleAction(updatedText: text, updatedSelection: ranges[0]) }
+    if next < ranges.count { return InlineMarkdownStyleAction(updatedText: text, updatedSelection: ranges[next]) }
+    let row = makeEmptyTableRow(columnCount: header.cells.count, indent: header.indent)
+    return InlineMarkdownStyleAction(updatedText: text + "\n" + row,
+        updatedSelection: NSRange(location: (text as NSString).length + 1 + (header.indent as NSString).length + 2, length: 0))
 }

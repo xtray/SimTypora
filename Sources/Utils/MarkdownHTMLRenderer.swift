@@ -205,7 +205,7 @@ final class MarkdownHTMLRenderer {
 
             if trimmed.hasPrefix(">") {
                 let quote = collectQuote(lines: lines, start: i)
-                html.append("<blockquote><p>\(renderInline(quote.joined(separator: "<br />")))</p></blockquote>")
+                html.append("<blockquote><p>\(quote.map { renderInline($0) }.joined(separator: "<br />"))</p></blockquote>")
                 i += quote.count
                 continue
             }
@@ -239,7 +239,8 @@ final class MarkdownHTMLRenderer {
 
         while i < lines.count {
             let trimmed = lines[i].trimmingCharacters(in: .whitespaces)
-            if trimmed.first == fence.char, trimmed.prefix(while: { $0 == fence.char }).count >= fence.len {
+            if trimmed.first == fence.char, trimmed.prefix(while: { $0 == fence.char }).count >= fence.len,
+               trimmed.drop(while: { $0 == fence.char }).trimmingCharacters(in: .whitespaces).isEmpty {
                 return (body.joined(separator: "\n"), i + 1, fence.lang)
             }
             body.append(lines[i])
@@ -255,7 +256,8 @@ final class MarkdownHTMLRenderer {
 
     private func parseHeading(_ line: String) -> (level: Int, text: String)? {
         guard line.hasPrefix("#") else { return nil }
-        let level = min(6, line.prefix { $0 == "#" }.count)
+        let level = line.prefix { $0 == "#" }.count
+        guard level <= 6, line.dropFirst(level).first?.isWhitespace != false else { return nil }
         let text = String(line.dropFirst(level)).trimmingCharacters(in: .whitespaces)
         guard !text.isEmpty else { return nil }
         return (level, text)
@@ -271,7 +273,8 @@ final class MarkdownHTMLRenderer {
     private func parseTable(lines: [String], start: Int) -> TableModel? {
         guard start + 1 < lines.count,
               let headers = parseTableCells(lines[start]),
-              let alignments = parseTableAlignments(lines[start + 1]) else {
+              let alignments = parseTableAlignments(lines[start + 1]),
+              headers.count == alignments.count else {
             return nil
         }
 
@@ -297,7 +300,7 @@ final class MarkdownHTMLRenderer {
         let parts = body.split(separator: "|", omittingEmptySubsequences: false)
             .map { String($0).trimmingCharacters(in: .whitespaces) }
 
-        return parts.count >= 2 ? parts : nil
+        return !parts.isEmpty ? parts : nil
     }
 
     private func parseTableAlignments(_ line: String) -> [String]? {
@@ -325,7 +328,7 @@ final class MarkdownHTMLRenderer {
     }
 
     private func renderTable(_ table: TableModel) -> String {
-        let colCount = max(table.headers.count, table.alignments.count, table.rows.map { $0.count }.max() ?? 0)
+        let colCount = table.headers.count
 
         func pad(_ values: [String], to count: Int) -> [String] {
             if values.count >= count { return Array(values.prefix(count)) }
@@ -483,10 +486,14 @@ final class MarkdownHTMLRenderer {
     }
 
     private func renderInline(_ text: String) -> String {
+        var protected: [String] = []
+        let tokenPrefix = UUID().uuidString
         var output = escapeHTML(text)
 
         output = replace(pattern: #"`([^`]+)`"#, in: output) { groups in
-            "<code>\(groups[0])</code>"
+            let token = tokenPrefix + String(protected.count) + tokenPrefix
+            protected.append("<code>\(groups[0])</code>")
+            return token
         }
 
         output = replace(pattern: #"\[([^\]]+)\]\(([^)]+)\)"#, in: output) { groups in
@@ -513,6 +520,9 @@ final class MarkdownHTMLRenderer {
             "<del>\(groups[0])</del>"
         }
 
+        for (index, code) in protected.enumerated() {
+            output = output.replacingOccurrences(of: tokenPrefix + String(index) + tokenPrefix, with: code)
+        }
         return output
     }
 

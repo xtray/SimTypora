@@ -29,6 +29,7 @@ private struct InPlaceMarkdownView: View {
     @State private var pendingSyncedTexts: [String] = []
 
     var body: some View {
+        GeometryReader { geometry in
         ScrollView {
             VStack(alignment: .leading, spacing: 2) {
                 ForEach(Array(blocks.enumerated()), id: \.offset) { index, block in
@@ -85,6 +86,13 @@ private struct InPlaceMarkdownView: View {
             }
             .padding(.horizontal, 56)
             .padding(.vertical, 28)
+            .frame(minHeight: geometry.size.height, alignment: .topLeading)
+            .background(
+                Color(nsColor: .textBackgroundColor)
+                    .contentShape(Rectangle())
+                    .onTapGesture { deactivateEditing() }
+            )
+        }
         }
         .background(Color(nsColor: .textBackgroundColor))
         .onAppear {
@@ -494,6 +502,7 @@ private struct BlockEditingTextView: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: NSScrollView, context: Context) {
+        context.coordinator.parent = self
         guard let textView = nsView.documentView as? InPlaceEditingTextView else { return }
         if textView.string != text {
             textView.string = text
@@ -531,6 +540,23 @@ private struct BlockEditingTextView: NSViewRepresentable {
         }
 
         func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+            guard !textView.hasMarkedText() else { return false }
+            if commandSelector == #selector(NSResponder.insertTab(_:)) ||
+                commandSelector == #selector(NSResponder.insertBacktab(_:)) {
+                if let action = tableNavigationAction(in: textView.string,
+                    selection: textView.selectedRange(),
+                    backwards: commandSelector == #selector(NSResponder.insertBacktab(_:))) {
+                    if action.updatedText != textView.string {
+                        let range = NSRange(location: 0, length: (textView.string as NSString).length)
+                        guard textView.shouldChangeText(in: range, replacementString: action.updatedText) else { return true }
+                        textView.textStorage?.replaceCharacters(in: range, with: action.updatedText)
+                        textView.didChangeText()
+                    }
+                    textView.setSelectedRange(action.updatedSelection)
+                    textView.scrollRangeToVisible(action.updatedSelection)
+                    return true
+                }
+            }
             if commandSelector == #selector(NSResponder.insertNewline(_:)) {
                 let selection = textView.selectedRange()
                 if selection.length == 0 {

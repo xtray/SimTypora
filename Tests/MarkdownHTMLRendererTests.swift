@@ -78,6 +78,37 @@ struct MarkdownHTMLRendererTests {
                 )
             }
 
+            try run("code contents remain literal") {
+                let html = MarkdownHTMLRenderer.shared.renderFragment("`**literal**`")
+                try expectTrue(html.contains("<code>**literal**</code>"), "code must not parse emphasis")
+            }
+            try run("quote line breaks are HTML") {
+                let html = MarkdownHTMLRenderer.shared.renderFragment("> first\n> second")
+                try expectTrue(html.contains("first<br />second"), "quote breaks must not be escaped")
+            }
+            try run("headings require whitespace and at most six markers") {
+                let html = MarkdownHTMLRenderer.shared.renderFragment("#tag\n\n####### title")
+                try expectTrue(html.contains("<p>#tag</p>"), "hashtags are paragraphs")
+                try expectTrue(html.contains("<p>####### title</p>"), "seven markers are paragraphs")
+            }
+            try run("fence closing line contains only markers") {
+                let html = MarkdownHTMLRenderer.shared.renderFragment("```\n``` text\nbody\n```")
+                try expectTrue(html.contains("``` text\nbody</code>"), "text after fence is code")
+            }
+
+            try run("table width follows header") {
+                let html = MarkdownHTMLRenderer.shared.renderFragment("| a | b |\n| --- | --- |\n| x | y | extra |")
+                try expectEqual(occurrences(of: "<td ", in: html), 2, "extra body cells must not create columns")
+            }
+            try run("table requires matching separator columns") {
+                let html = MarkdownHTMLRenderer.shared.renderFragment("| a | b |\n| --- | --- | --- |")
+                try expectTrue(!html.contains("<table>"), "mismatched headers are not a table")
+            }
+            try run("single column tables render") {
+                let html = MarkdownHTMLRenderer.shared.renderFragment("| a |\n| --- |\n| b |")
+                try expectTrue(html.contains("<table>"), "single column table should render")
+            }
+
             print("All markdown HTML renderer tests passed")
         } catch {
             exit(1)
